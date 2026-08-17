@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ─── Application layer ───────────────────────────────────────────────────────
 COPY . .
 
-# The CMD is overridden per-service in docker-compose.yml
+RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
+
 # Default: run the FastAPI app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./start.sh"]

@@ -1,0 +1,94 @@
+version: "3.9"
+
+# ─── Named volumes ───────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+
+# ─── Services ────────────────────────────────────────────────────────────────
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: linkplease
+      POSTGRES_USER: linkplease
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linkplease_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkplease -d linkplease"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes   # persist queue to disk
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── FastAPI application ─────────────────────────────────────────────────────
+  app:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://linkplease:${POSTGRES_PASSWORD:-linkplease_dev}@db:5432/linkplease
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Restart policy: always bring the API back up automatically
+    restart: unless-stopped
+
+  # ── Delivery worker ─────────────────────────────────────────────────────────
+  # Separate process so it doesn't block the API.
+  # Uses the same Docker image with a different command.
+  delivery_worker:
+    build: .
+    command: python -m app.workers.delivery_worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://linkplease:${POSTGRES_PASSWORD:-linkplease_dev}@db:5432/linkplease
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Reconciliation worker ───────────────────────────────────────────────────
+  # Polls PseudoGram every 60 seconds to detect silent DM failures (~15%).
+  reconciliation_worker:
+    build: .
+    command: python -m app.workers.reconciliation_worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://linkplease:${POSTGRES_PASSWORD:-linkplease_dev}@db:5432/linkplease
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

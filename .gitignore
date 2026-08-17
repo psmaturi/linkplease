@@ -1,0 +1,20 @@
+# Never commit secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
